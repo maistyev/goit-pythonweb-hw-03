@@ -2,13 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY . .
+RUN mkdir -p /app/templates /app/static/css /app/static/img /app/storage
 
-# Install required packages
+COPY main.py /app/
+COPY templates/*.html /app/templates/
+COPY static/css/*.css /app/static/css/
+COPY static/img/*.png /app/static/img/
+
 RUN pip install jinja2
 
-# Expose the application port
 EXPOSE 3000
 
-# Run the application
 CMD ["python", "main.py"]

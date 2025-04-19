@@ -5,3 +5,5 @@ services:
       - "3000:3000"
     volumes:
       - ./storage:/app/storage
+      - ./templates:/app/templates
+      - ./static:/app/static

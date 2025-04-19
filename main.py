@@ -9,7 +9,6 @@ from http import HTTPStatus
 import pathlib
 from jinja2 import Environment, FileSystemLoader
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -23,13 +22,22 @@ logger = logging.getLogger(__name__)
 PORT = 3000
 BASE_DIR = pathlib.Path(".")
 STORAGE_DIR = BASE_DIR / "storage"
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
+CSS_DIR = STATIC_DIR / "css"
+IMG_DIR = STATIC_DIR / "img"
 
-# Ensure storage directory exists
 STORAGE_DIR.mkdir(exist_ok=True)
-logger.info(f"Storage directory: {STORAGE_DIR}")
+TEMPLATES_DIR.mkdir(exist_ok=True)
+STATIC_DIR.mkdir(exist_ok=True)
+CSS_DIR.mkdir(exist_ok=True)
+IMG_DIR.mkdir(exist_ok=True)
 
-# Initialize Jinja2 environment
-env = Environment(loader=FileSystemLoader('templates'))
+logger.info(f"Storage directory: {STORAGE_DIR}")
+logger.info(f"Templates directory: {TEMPLATES_DIR}")
+logger.info(f"Static directory: {STATIC_DIR}")
+
+env = Environment(loader=FileSystemLoader(TEMPLATES_DIR))
 logger.info("Jinja2 environment initialized")
 
 class WebServerHandler(http.server.SimpleHTTPRequestHandler):
@@ -40,10 +48,10 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_html_file("index.html")
             case "/message.html":
                 self.send_html_file("message.html")
-            case "/style.css":
-                self.send_static("style.css", "text/css")
-            case "/logo.png":
-                self.send_static("logo.png", "image/png")
+            case "/static/css/style.css":
+                self.send_static_file(CSS_DIR / "style.css", "text/css")
+            case "/static/img/logo.png":
+                self.send_static_file(IMG_DIR / "logo.png", "image/png")
             case "/read":
                 self.send_read_page()
             case _:
@@ -55,16 +63,13 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
             post_data = self.rfile.read(content_length).decode("utf-8")
             parsed_data = urllib.parse.parse_qs(post_data)
             
-            # Convert parsed data to the required format
             data = {
                 "username": parsed_data.get("username", [""])[0],
                 "message": parsed_data.get("message", [""])[0]
             }
             
-            # Save data to storage
             self.save_data(data)
             
-            # Redirect to the main page
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
@@ -73,28 +78,40 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
 
     def send_html_file(self, filename, status=HTTPStatus.OK):
         try:
-            with open(filename, "rb") as file:
-                content = file.read()
+            template = env.get_template(filename)
+            content = template.render().encode('utf-8')
+            
             self.send_response(status)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
             self.wfile.write(content)
-        except FileNotFoundError:
-            self.send_html_file("error.html", HTTPStatus.NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error rendering template {filename}: {e}")
+            try:
+                template = env.get_template("error.html")
+                content = template.render().encode('utf-8')
+                self.send_response(HTTPStatus.NOT_FOUND)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(content)
+            except Exception as e:
+                logger.error(f"Error rendering error template: {e}")
+                self.send_response(HTTPStatus.INTERNAL_SERVER_ERROR)
+                self.end_headers()
 
-    def send_static(self, filename, content_type):
+    def send_static_file(self, filepath, content_type):
         try:
-            with open(filename, "rb") as file:
+            with open(filepath, "rb") as file:
                 content = file.read()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", content_type)
             self.end_headers()
             self.wfile.write(content)
         except FileNotFoundError:
+            logger.error(f"Static file not found: {filepath}")
             self.send_html_file("error.html", HTTPStatus.NOT_FOUND)
 
     def save_data(self, data):
-        # Load existing data
         storage_file = STORAGE_DIR / "data.json"
         
         try:
@@ -107,11 +124,9 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 storage_data = {}
                 
-            # Add new data with timestamp
             timestamp = str(datetime.now())
             storage_data[timestamp] = data
             
-            # Save updated data
             with open(storage_file, "w", encoding="utf-8") as file:
                 json.dump(storage_data, file, ensure_ascii=False, indent=2)
                 
@@ -120,12 +135,7 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
 
     def send_read_page(self):
         try:
-            # Create templates directory if it doesn't exist
-            templates_dir = BASE_DIR / "templates"
-            templates_dir.mkdir(exist_ok=True)
-            
-            # Create read.html template if it doesn't exist
-            template_path = templates_dir / "read.html"
+            template_path = TEMPLATES_DIR / "read.html"
             if not template_path.exists():
                 with open(template_path, "w", encoding="utf-8") as file:
                     file.write("""<!DOCTYPE html>
@@ -139,14 +149,14 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/static/css/style.css" />
   </head>
   <body>
     <header>
       <nav class="navbar navbar-expand navbar-dark bg-dark">
         <div class="container-fluid">
           <a class="navbar-brand" href="#">
-            <img src="/logo.png" alt="logo" />
+            <img src="/static/img/logo.png" alt="logo" />
           </a>
           <div class="collapse navbar-collapse" id="navbarsExample02">
             <ul class="navbar-nav me-auto">
@@ -190,7 +200,6 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
   </body>
 </html>""")
             
-            # Load data from storage
             storage_file = STORAGE_DIR / "data.json"
             if storage_file.exists():
                 with open(storage_file, "r", encoding="utf-8") as file:
@@ -201,7 +210,6 @@ class WebServerHandler(http.server.SimpleHTTPRequestHandler):
             else:
                 messages = {}
             
-            # Render template
             template = env.get_template('read.html')
             content = template.render(messages=messages)
             
